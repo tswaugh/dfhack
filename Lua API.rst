@@ -717,6 +717,57 @@ Functions:
   Checks if the material matches job_material_category or job_item.
   Accept dfhack_material_category auto-assign table.
 
+Random number generation
+------------------------
+
+* ``dfhack.random.new([seed[,perturb_count]])``
+
+  Creates a new random number generator object. Without any
+  arguments, the object is initialized using current time.
+  Otherwise, the seed must be either a non-negative integer,
+  or a list of such integers. The second argument may specify
+  the number of additional randomization steps performed to
+  improve the initial state.
+
+* ``rng:init([seed[,perturb_count]])``
+
+  Re-initializes an already existing random number generator object.
+
+* ``rng:random([limit])``
+
+  Returns a random integer. If ``limit`` is specified, the value
+  is in the range [0, limit); otherwise it uses the whole 32-bit
+  unsigned integer range.
+
+* ``rng:drandom()``
+
+  Returns a random floating-point number in the range [0,1).
+
+* ``rng:drandom0()``
+
+  Returns a random floating-point number in the range (0,1).
+
+* ``rng:drandom1()``
+
+  Returns a random floating-point number in the range [0,1].
+
+* ``rng:unitrandom()``
+
+  Returns a random floating-point number in the range [-1,1].
+
+* ``rng:unitvector([size])``
+
+  Returns multiple values that form a random vector of length 1,
+  uniformly distributed over the corresponding sphere surface.
+  The default size is 3.
+
+* ``fn = rng:perlin([dim]); fn(x[,y[,z]])``
+
+  Returns a closure that computes a classical Perlin noise function
+  of dimension *dim*, initialized from this random generator.
+  Dimension may be 1, 2 or 3 (default).
+
+
 C++ function wrappers
 =====================
 
@@ -2967,51 +3018,129 @@ on DF world events.
 List of events
 --------------
 
-1. onReactionComplete(reaction,unit,input_items,input_reagents,output_items,call_native) - auto activates if detects reactions starting with ``LUA_HOOK_``. Is called when reaction finishes.
-2. onItemContaminateWound(item,unit,wound,number1,number2) - Is called when item tries to contaminate wound (e.g. stuck in)
-3. onProjItemCheckMovement(projectile) - is called when projectile moves
-4. onProjItemCheckImpact(projectile,somebool) - is called when projectile hits something
-5. onProjUnitCheckMovement(projectile) - is called when projectile moves
-6. onProjUnitCheckImpact(projectile,somebool) - is called when projectile hits something
-7. onWorkshopFillSidebarMenu(workshop,callnative) - is called when viewing a workshop in 'q' mode, to populate reactions, usefull for custom viewscreens for shops
-8. postWorkshopFillSidebarMenu(workshop) - is called after calling (or not) native fillSidebarMenu(). Usefull for job button tweaking (e.g. adding custom reactions)
+1. ``onReactionComplete(reaction,unit,input_items,input_reagents,output_items,call_native)``
+
+   Auto activates if detects reactions starting with ``LUA_HOOK_``. Is called when reaction finishes.
+
+2. ``onItemContaminateWound(item,unit,wound,number1,number2)``
+
+   Is called when item tries to contaminate wound (e.g. stuck in).
+
+3. ``onProjItemCheckMovement(projectile)``
+
+   Is called when projectile moves.
+
+4. ``onProjItemCheckImpact(projectile,somebool)``
+
+   Is called when projectile hits something.
+
+5. ``onProjUnitCheckMovement(projectile)``
+
+   Is called when projectile moves.
+
+6. ``onProjUnitCheckImpact(projectile,somebool)``
+
+   Is called when projectile hits something.
+
+7. ``onWorkshopFillSidebarMenu(workshop,callnative)``
+
+   Is called when viewing a workshop in 'q' mode, to populate reactions, useful for custom viewscreens for shops.
+
+8. ``postWorkshopFillSidebarMenu(workshop)``
+
+   Is called after calling (or not) native fillSidebarMenu(). Useful for job button
+   tweaking (e.g. adding custom reactions)
+
+Events from EventManager
+------------------------
+These events are straight from EventManager module. Each of them first needs to be enabled. See functions for more info. If you register a listener before the game is loaded, be aware that no events will be triggered immediately after loading, so you might need to add another event listener for when the game first loads in some cases.
+
+1. ``onBuildingCreatedDestroyed(building_id)``
+
+   Gets called when building is created or destroyed.
+
+2. ``onConstructionCreatedDestroyed(building_id)``
+
+   Gets called when construction is created or destroyed.
+
+3. ``onJobInitiated(job)``
+
+   Gets called when job is issued.
+
+4. ``onJobCompleted(job)``
+
+   Gets called when job is finished. The job that is passed to this function is a copy. Requires a frequency of 0 in order to distinguish between workshop jobs that were cancelled by the user and workshop jobs that completed successfully.
+
+5. ``onUnitDeath(unit_id)``
+
+   Gets called on unit death.
+
+6. ``onItemCreated(item_id)``
+
+   Gets called when item is created (except due to traders, migrants, invaders and spider webs).
+
+7. ``onSyndrome(unit_id,syndrome_index)``
+
+   Gets called when new syndrome appears on a unit.
+
+8. ``onInvasion(invasion_id)``
+
+   Gets called when new invasion happens.
+
+9. ``onInventoryChange(unit_id,item_id,old_equip,new_equip)``
+
+   Gets called when someone picks up an item, puts one down, or changes the way they are holding it. If an item is picked up, old_equip will be null. If an item is dropped, new_equip will be null. If an item is re-equipped in a new way, then neither will be null. You absolutely must NOT alter either old_equip or new_equip or you might break other plugins. 
 
 Functions
 ---------
 
-1. registerReaction(reaction_name,callback) - simplified way of using onReactionComplete, the callback is function (same params as event)
-2. removeNative(shop_name) - removes native choice list from the building
-3. addReactionToShop(reaction_name,shop_name) - add a custom reaction to the building
+1. ``registerReaction(reaction_name,callback)``
+
+   Simplified way of using onReactionComplete; the callback is function (same params as event).
+
+2. ``removeNative(shop_name)``
+
+   Removes native choice list from the building.
+
+3. ``addReactionToShop(reaction_name,shop_name)``
+
+   Add a custom reaction to the building.
+
+4. ``enableEvent(evType,frequency)``
+
+   Enable event checking for EventManager events. For event types use ``eventType`` table. Note that different types of events require different frequencies to be effective. The frequency is how many ticks EventManager will wait before checking if that type of event has happened. If multiple scripts or plugins use the same event type, the smallest frequency is the one that is used, so you might get events triggered more often than the frequency you use here.
 
 Examples
 --------
-Spawn dragon breath on each item attempt to contaminate wound:
-::
+Spawn dragon breath on each item attempt to contaminate wound::
 
-  b=require "plugins.eventful"
+    b=require "plugins.eventful"
     b.onItemContaminateWound.one=function(item,unit,un_wound,x,y)
         local flw=dfhack.maps.spawnFlow(unit.pos,6,0,0,50000)
     end
 
-Reaction complete example:
-::
+Reaction complete example::
+
   b=require "plugins.eventful"
+
   b.onReactionComplete.one=function(reaction,unit,in_items,in_reag,out_items,call_native)
     local pos=copyall(unit.pos)
-    dfhack.timeout(100,"ticks",function() dfhack.maps.spawnFlow(pos,6,0,0,50000) end) -- spawn dragonbreath after 100 ticks
-    call_native.value=false --do not call real item creation code
+    -- spawn dragonbreath after 100 ticks
+    dfhack.timeout(100,"ticks",function() dfhack.maps.spawnFlow(pos,6,0,0,50000) end)
+    --do not call real item creation code
+    call_native.value=false
   end
 
-Granade example:
-::
+Grenade example::
+
   b=require "plugins.eventful"
   b.onProjItemCheckImpact.one=function(projectile)
     -- you can check if projectile.item e.g. has correct material
     dfhack.maps.spawnFlow(projectile.cur_pos,6,0,0,50000) 
   end
 
-Integrated tannery:
-::
+Integrated tannery::
+
   b=require "plugins.eventful"
   b.addReactionToShop("TAN_A_HIDE","LEATHERWORKS")
 

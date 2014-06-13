@@ -44,6 +44,7 @@
 
 using std::string;
 using std::endl;
+using std::vector;
 using namespace DFHack;
 using namespace df::enums;
 using df::global::ui;
@@ -76,7 +77,7 @@ using df::global::world;
  * (mining, hunting, and woodcutting) need to be handled carefully to minimize churn.
  */
 
-static int enable_autolabor = 0;
+DFHACK_PLUGIN_IS_ENABLED(enable_autolabor);
 
 static bool print_debug = 0;
 
@@ -535,6 +536,7 @@ static void setOptionEnabled(ConfigFlags flag, bool on)
 
 static void cleanup_state()
 {
+    enable_autolabor = false;
     labor_infos.clear();
 }
 
@@ -679,6 +681,8 @@ DFhackCExport command_result plugin_init ( color_ostream &out, std::vector <Plug
         "  also tries to have dwarves specialize in specific skills.\n"
         "  Warning: autolabor will override any manual changes you make to labors\n"
         "  while it is enabled.\n"
+        "  To prevent particular dwarves from being managed by autolabor, put them\n"
+        "  in any burrow.\n"
         "Examples:\n"
         "  autolabor MINE 2\n"
         "    Keep at least 2 dwarves with mining enabled.\n"
@@ -1007,6 +1011,7 @@ DFhackCExport command_result plugin_onupdate ( color_ostream &out )
         int noble_penalty = 0;
 
         df::historical_figure* hf = df::historical_figure::find(dwarfs[dwarf]->hist_figure_id);
+        if(hf!=NULL) //can be NULL. E.g. script created citizens
         for (int i = 0; i < hf->entity_links.size(); i++)
         {
             df::histfig_entity_link* hfelink = hf->entity_links.at(i);
@@ -1295,6 +1300,27 @@ void print_labor (df::unit_labor labor, color_ostream &out)
     }
 }
 
+DFhackCExport command_result plugin_enable ( color_ostream &out, bool enable )
+{
+    if (!Core::getInstance().isWorldLoaded()) {
+        out.printerr("World is not loaded: please load a game first.\n");
+        return CR_FAILURE;
+    }
+
+    if (enable && !enable_autolabor)
+    {
+        enable_plugin(out);
+    }
+    else if(!enable && enable_autolabor)
+    {
+        enable_autolabor = false;
+        setOptionEnabled(CF_ENABLED, false);
+
+        out << "Autolabor is disabled." << endl;
+    }
+
+    return CR_OK;
+}
 
 command_result autolabor (color_ostream &out, std::vector <std::string> & parameters)
 {
@@ -1310,19 +1336,8 @@ command_result autolabor (color_ostream &out, std::vector <std::string> & parame
          parameters[0] == "1" || parameters[0] == "disable"))
     {
         bool enable = (parameters[0] == "1" || parameters[0] == "enable");
-        if (enable && !enable_autolabor)
-        {
-            enable_plugin(out);
-        }
-        else if(!enable && enable_autolabor)
-        {
-            enable_autolabor = false;
-            setOptionEnabled(CF_ENABLED, false);
 
-            out << "The plugin is disabled." << endl;
-        }
-
-        return CR_OK;
+        return plugin_enable(out, enable);
     }
     else if (parameters.size() == 2 && parameters[0] == "haulpct")
     {

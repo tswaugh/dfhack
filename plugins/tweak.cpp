@@ -57,9 +57,11 @@
 #include "df/activity_event_individual_skill_drillst.h"
 #include "df/activity_event_skill_demonstrationst.h"
 #include "df/activity_event_sparringst.h"
+#include "df/building_hivest.h"
 
 #include <stdlib.h>
 
+using std::set;
 using std::vector;
 using std::string;
 using std::endl;
@@ -136,6 +138,8 @@ DFhackCExport command_result plugin_init (color_ostream &out, std::vector <Plugi
         "    to make them stand out more in the list.\n"
         "  tweak military-training [disable]\n"
         "    Speed up melee squad training, removing inverse dependency on unit count.\n"
+        "  tweak hive-crash [disable]\n"
+        "    Prevents crash if bees die in a hive with uncollected products (bug 6368).\n"
     ));
     return CR_OK;
 }
@@ -251,10 +255,16 @@ struct stable_cursor_hook : df::viewscreen_dwarfmodest
 
             // Force update of ui state
             set<df::interface_key> tmp;
-            tmp.insert(interface_key::CURSOR_DOWN_Z);
+            if (last_cursor.z < 2)
+                tmp.insert(interface_key::CURSOR_UP_Z);
+            else
+                tmp.insert(interface_key::CURSOR_DOWN_Z);
             INTERPOSE_NEXT(feed)(&tmp);
             tmp.clear();
-            tmp.insert(interface_key::CURSOR_UP_Z);
+            if (last_cursor.z < 2)
+                tmp.insert(interface_key::CURSOR_DOWN_Z);
+            else
+                tmp.insert(interface_key::CURSOR_UP_Z);
             INTERPOSE_NEXT(feed)(&tmp);
         }
         else if (!is_default && cur_cursor.isValid())
@@ -696,7 +706,7 @@ static bool can_spar(df::unit *unit) {
     return unit->counters2.exhaustion <= 2000 && // actually 4000, but leave a gap
            (unit->status2.limbs_grasp_count > 0 || unit->status2.limbs_grasp_max == 0) &&
            (!unit->health || (unit->health->flags.whole&0x7FF) == 0) &&
-           (!unit->job.current_job || unit->job.current_job != job_type::Rest);
+           (!unit->job.current_job || unit->job.current_job->job_type != job_type::Rest);
 }
 
 static bool has_spar_inventory(df::unit *unit, df::job_skill skill)
@@ -809,14 +819,18 @@ struct military_training_ct_hook : df::activity_event_combat_trainingst {
                             spar++;
                     }
 
+#if 0
                     color_ostream_proxy out(Core::getInstance().getConsole());
+#endif
 
                     // If the xp gap is low, sometimes replace with sparring
                     if ((maxv - minv) < 64*15 && spar == units.size() &&
                         random_int(45) >= 30 + (maxv-minv)/64)
                     {
+#if 0
                         out.print("Replacing %s demonstration (xp %d-%d, gap %d) with sparring.\n",
                                   ENUM_KEY_STR(job_skill, sd->skill).c_str(), minv, maxv, maxv-minv);
+#endif
 
                         if (auto spar = df::allocate<df::activity_event_sparringst>())
                         {
@@ -838,18 +852,22 @@ struct military_training_ct_hook : df::activity_event_combat_trainingst {
                     // If the teacher has less xp than somebody else, switch
                     if (best >= 0 && maxv > cur_xp)
                     {
+#if 0
                         out.print("Replacing %s teacher %d (%d xp) with %d (%d xp); xp gap %d.\n",
                                   ENUM_KEY_STR(job_skill, sd->skill).c_str(),
                                   sd->unit_id, cur_xp, units[best], maxv, maxv-minv);
+#endif
 
                         sd->hist_figure_id = sd->participants.histfigs[best];
                         sd->unit_id = units[best];
                     }
                     else
                     {
+#if 0
                         out.print("Not changing %s demonstration (xp %d-%d, gap %d).\n",
                                   ENUM_KEY_STR(job_skill, sd->skill).c_str(),
                                   minv, maxv, maxv-minv);
+#endif
                     }
                 }
             }
@@ -918,19 +936,60 @@ struct military_training_id_hook : df::activity_event_individual_skill_drillst {
 
 IMPLEMENT_VMETHOD_INTERPOSE(military_training_id_hook, process);
 
+struct hive_crash_hook : df::building_hivest {
+    typedef df::building_hivest interpose_base;
+
+    DEFINE_VMETHOD_INTERPOSE(void, updateAction, ())
+    {
+        bool any_bees = false;
+        for (size_t i = 0; i < contained_items.size(); i++)
+        {
+            if (contained_items[i]->item->getType() != item_type::VERMIN)
+                continue;
+            any_bees = true;
+            break;
+        }
+
+        if (!any_bees)
+        {
+            bool any_products = false;
+            for (size_t i = 0; i < contained_items.size(); i++)
+            {
+                if (contained_items[i]->use_mode != 0 ||
+                    !contained_items[i]->item->flags.bits.in_building)
+                    continue;
+
+                contained_items[i]->item->flags.bits.in_building = false;
+                any_products = true;
+            }
+
+            if (any_products)
+            {
+                color_ostream_proxy out(Core::getInstance().getConsole());
+                out.print("Bees died in hive with products at (%d,%d,%d); preventing crash.\n",
+                          centerx, centery, z);
+            }
+        }
+
+        INTERPOSE_NEXT(updateAction)();
+    }
+};
+
+IMPLEMENT_VMETHOD_INTERPOSE(hive_crash_hook, updateAction);
+
 static void enable_hook(color_ostream &out, VMethodInterposeLinkBase &hook, vector <string> &parameters)
 {
     if (vector_get(parameters, 1) == "disable")
     {
         hook.remove();
-        out.print("Disabled tweak %s\n", parameters[0].c_str());
+        out.print("Disabled tweak %s (%s)\n", parameters[0].c_str(), hook.name());
     }
     else
     {
         if (hook.apply())
-            out.print("Enabled tweak %s\n", parameters[0].c_str());
+            out.print("Enabled tweak %s (%s)\n", parameters[0].c_str(), hook.name());
         else
-            out.printerr("Could not activate tweak %s\n", parameters[0].c_str());
+            out.printerr("Could not activate tweak %s (%s)\n", parameters[0].c_str(), hook.name());
     }
 }
 
@@ -1097,6 +1156,10 @@ static command_result tweak(color_ostream &out, vector <string> &parameters)
         enable_hook(out, INTERPOSE_HOOK(military_training_sd_hook, process), parameters);
         enable_hook(out, INTERPOSE_HOOK(military_training_sp_hook, process), parameters);
         enable_hook(out, INTERPOSE_HOOK(military_training_id_hook, process), parameters);
+    }
+    else if (cmd == "hive-crash")
+    {
+        enable_hook(out, INTERPOSE_HOOK(hive_crash_hook, updateAction), parameters);
     }
     else 
         return CR_WRONG_USAGE;
